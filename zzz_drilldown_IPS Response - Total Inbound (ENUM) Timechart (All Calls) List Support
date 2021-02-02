@@ -1,0 +1,354 @@
+<dashboard>
+  <label>zzz_drilldown_IPS Response - Total Inbound (ENUM) Timechart (All Calls) List Support</label>
+  <row>
+    <panel>
+      <single>
+        <title>Selected Time</title>
+        <search>
+          <query>| dbxquery 
+connection="ngp_connection" 
+timeout=1800 query="
+SELECT to_timestamp(cast($date_value$ as bigint)) as c
+" shortnames=t
+| table *</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <single>
+        <title>Calls (8 Intervals)</title>
+        <search base="call_src_dst_intervals">
+          <query>| eval _time=strptime(bucket,"%Y-%m-%d %H:%M")
+| timechart fixedrange=false span=1w sum(calls)
+| sort _time</query>
+        </search>
+        <option name="colorBy">trend</option>
+        <option name="colorMode">none</option>
+        <option name="drilldown">none</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Sourcenumbers (8 Intervals)</title>
+        <search base="call_src_dst_intervals">
+          <query>| eval _time=strptime(bucket,"%Y-%m-%d %H:%M")
+| timechart fixedrange=false span=1w sum(sourcenumbers)
+| sort _time</query>
+        </search>
+        <option name="colorBy">trend</option>
+        <option name="drilldown">none</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <single>
+        <title>Destinationnumbers (8 Intervals)</title>
+        <search base="call_src_dst_intervals">
+          <query>| eval _time=strptime(bucket,"%Y-%m-%d %H:%M")
+| timechart fixedrange=false span=1w sum(destinationnumbers)
+| sort _time</query>
+        </search>
+        <option name="colorBy">trend</option>
+        <option name="drilldown">none</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>Calls by Minute (Selected Interval + Prev 30m) by Routername</title>
+        <search base="cdr">
+          <query>| eval _time=strptime(flowtime_ts_utc,"%Y-%m-%d %H:%M:%S")
+| timechart fixedrange=false span=1m count by routername</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <search base="cdr">
+          <query>| eval _time=strptime(flowtime_ts_utc,"%Y-%m-%d %H:%M:%S")
+| timechart fixedrange=false span=1m dc(sourcenumber) as sources dc(destinationnumber) as destinations</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Top 10 Source Numbers</title>
+        <search base="cdr">
+          <query>| stats count by sourcenumber
+| sort -count
+| head 10</query>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+    <panel>
+      <table>
+        <title>Top 10 Destination Numbers</title>
+        <search base="cdr">
+          <query>| stats count by destinationnumber
+| sort -count
+| head 10</query>
+        </search>
+        <option name="drilldown">none</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>CDR</title>
+        <search id="cdr">
+          <query>| dbxquery 
+connection="ngp_connection" 
+timeout=1800 query="
+SELECT to_timestamp(a.flowtime/1000) at time zone 'America/Chicago' as flowtime_ts_cst6cdt,
+       to_timestamp(a.flowtime/1000) at time zone 'UTC' as flowtime_ts_utc,
+       a.sourcenumber,
+       a.sourceregion,
+       a.destinationnumber,
+       a.destinationregion,
+       CASE a.direction
+        WHEN 1 THEN 'INBOUND'
+        ELSE 'OUTBOUND'
+       END as direction,
+       a.routername,
+       CASE s.policydisposition
+         WHEN 0 THEN 'UNKNOWN'
+         WHEN 1 THEN 'ALLOWED'
+         WHEN 2 THEN 'TERMINATED'
+         WHEN 3 THEN 'REDIRECTED'
+         WHEN 4 THEN 'TRANSFERRED'
+         WHEN 5 THEN 'UNANSWERED'
+         WHEN 6 THEN 'EXPIRED'
+         ELSE s.policydisposition::varchar
+       END as policydisposition,
+       s.ruleid
+FROM     master.flowstart a LEFT OUTER JOIN master.policyflowdetails s ON a.guid=s.guid
+WHERE    a.routername LIKE 'enum%' AND
+         a.direction = 1 AND
+         a.analyticstime &gt;=  (($date_value$-(2*15*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+" shortnames=t
+| table flowtime_ts_utc flowtime_ts_cst6cdt sourcenumber sourceregion destinationnumber destinationregion direction routername policydisposition ruleid</query>
+          <earliest>-15m</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Last 8 Intervals</title>
+        <search id="call_src_dst_intervals">
+          <query>| dbxquery 
+connection="ngp_connection" 
+timeout=1800 query="
+SELECT  to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.direction = 1 AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (7*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (7*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (14*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (14*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (21*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (21*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (28*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (28*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (35*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (35*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')  as bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (42*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (42*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+UNION ALL
+SELECT   to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss') AS bucket,
+         count(guid) as calls,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a 
+WHERE    a.routername LIKE 'enum%' AND
+         a.analyticstime &gt;=  (($date_value$+( 0*60) - (49*24*60*60))*1000)::bigint AND
+         a.analyticstime  &lt;  (($date_value$+(15*60) - (49*24*60*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+GROUP BY to_char(date_trunc('week', to_timestamp(analyticstime/1000) - interval '1 day'),'YYYY-MM-DD hh24:mi:ss')
+" shortnames=t
+| table bucket calls sourcenumbers destinationnumbers</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>CDR with Call Dispositions</title>
+        <search id="cdr_calldispositions">
+          <query>| dbxquery 
+connection="ngp_connection" 
+timeout=1800 query="
+SELECT  to_timestamp(a.flowtime/1000) at time zone 'CST6CDT' as flowtime_ts_cst6cdt,
+       to_timestamp(a.flowtime/1000) at time zone 'UTC' as flowtime_ts_utc,
+       a.sourcenumber,
+       a.sourceregion,
+       a.destinationnumber,
+       a.destinationregion,
+       CASE a.direction
+        WHEN 1 THEN 'INBOUND'
+        ELSE 'OUTBOUND'
+       END as direction,
+       REPLACE((fe.meta::json-&gt;'callDispositions')::varchar,'\"','') as callDispositions,
+       fe.duration,
+       fe.offsetms
+FROM     master.flowstart a INNER JOIN master.flowend fe on a.guid=fe.guid
+WHERE   a.direction = 1 AND
+        a.analyticstime &gt;=  (($date_value$-(2*15*60))*1000)::bigint AND
+        a.analyticstime  &lt;  (($date_value$+(15*60))*1000)::bigint AND
+         a.destinationnumber IN 
+			 	  (
+					SELECT 	a.value
+					FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+					WHERE 	  b.name = '$listName_token$'
+				  )
+" shortnames=t
+| table *</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</dashboard>
