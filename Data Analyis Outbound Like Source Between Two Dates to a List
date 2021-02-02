@@ -1,0 +1,168 @@
+<form>
+  <label>Data Analyis Outbound Like Source Between Two Dates to a List</label>
+  <fieldset submitButton="true">
+    <input type="text" token="sourceNumber_token">
+      <label>Outbound Source Number (digits only)</label>
+    </input>
+    <input type="dropdown" token="listName_token">
+      <label>Outbound Destination List</label>
+      <fieldForLabel>name</fieldForLabel>
+      <fieldForValue>name</fieldForValue>
+      <search>
+        <query>| dbxquery 
+connection="ngp_connection"
+query="
+SELECT distinct b.NAME 
+FROM   master.listinggroup b 
+ORDER BY b.NAME
+" shortnames=t
+| table *</query>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </search>
+    </input>
+    <input type="text" token="startTime_token">
+      <label>Start Time (YYYY-MM-DD hh24:mi:ss)</label>
+    </input>
+    <input type="text" token="endTime_token">
+      <label>End Time (YYYY-MM-DD hh24:mi:ss)</label>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <chart>
+        <title>ENUM 15m calls by Sourcenumber</title>
+        <search base="cdr">
+          <query>| eval _time=strptime(flowtime_ts_gmt,"%Y-%m-%d %H:%M:%S")
+| timechart span=15m count by direction fixedrange=false</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>ENUM by 15m Buckets PolicyD</title>
+        <search base="cdr">
+          <query>| eval _time=strptime(flowtime_ts_gmt,"%Y-%m-%d %H:%M:%S")
+| timechart span=15m count by policydisposition fixedrange=false</query>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <table>
+        <title>Top 10 Destinations Called</title>
+        <search base="cdr">
+          <query>| stats count by destinationnumber
+| sort -count
+| head 10
+| join type=left destinationnumber
+[
+| dbxquery 
+connection="bi_db_1" 
+timeout=1800 query="
+SELECT list_name, value_original as destinationnumber
+FROM   pg_directory WHERE list_name LIKE '%BU%'
+"
+]
+| table destinationnumber list_name count
+| sort -count</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <table>
+        <title>by Routername</title>
+        <search base="cdr">
+          <query>| stats count by routername
+| sort -count</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>PolicyGuru CDR</title>
+        <search id="cdr">
+          <query>| dbxquery 
+maxrows=250000
+connection=ngp_connection
+timeout=1800 query="
+SELECT  to_timestamp(a.flowtime/1000) at time zone 'CST6CDT' as flowtime_ts_cst6cdt,
+       to_timestamp(a.flowtime/1000) at time zone 'GMT' as flowtime_ts_gmt,
+       CASE
+         WHEN LEFT(sourcenumber,1) &lt;&gt; '+' AND LENGTH(sourcenumber)=10 THEN '+1'||sourcenumber
+         WHEN LEFT(sourcenumber,1) =  '+' AND LENGTH(sourcenumber)=11 THEN '+1'||RIGHT(sourcenumber,10)
+         WHEN LEFT(sourcenumber,1) =  '1' AND LENGTH(sourcenumber)=11 THEN '+'||sourcenumber
+         ELSE sourcenumber
+       END as sourcenumber,
+       a.sourceregion,
+       CASE  
+         WHEN LEFT(destinationnumber,1) &lt;&gt; '+' AND LENGTH(sourcenumber)=10 THEN '+1'||destinationnumber
+         WHEN LEFT(destinationnumber,1) = '+' AND LENGTH(destinationnumber)=11 THEN '+1'||RIGHT(destinationnumber,10)
+         WHEN LEFT(destinationnumber,1) = '1' AND LENGTH(destinationnumber)=11 THEN '+'||destinationnumber
+         ELSE destinationnumber
+       END as destinationnumber,
+       a.destinationregion,
+       CASE a.direction
+        WHEN 1 THEN 'INBOUND'
+        ELSE 'OUTBOUND'
+       END as direction,
+       a.routername,
+       CASE b.policydisposition
+         WHEN 0 THEN 'UNKNOWN'
+         WHEN 1 THEN 'ALLOWED'
+         WHEN 2 THEN 'TERMINATED'
+         WHEN 3 THEN 'REDIRECTED'
+         WHEN 4 THEN 'TRANSFERRED'
+         WHEN 5 THEN 'UNANSWERED'
+         WHEN 6 THEN 'EXPIRED'
+         ELSE b.policydisposition::varchar
+       END as policydisposition,
+       b.ruleid
+FROM     master.flowstart a LEFT OUTER JOIN master.policyflowdetails b ON a.guid=b.guid
+WHERE    a.routername LIKE 'enum%' AND
+         a.direction = 2 AND
+         a.analyticstime &gt;= (extract ('epoch' from timestamp '$startTime_token$') * 1000)::bigint AND
+         a.analyticstime  &lt; (extract ('epoch' from timestamp '$endTime_token$' + INTERVAL '15 minutes') * 1000)::bigint AND
+         CASE
+         WHEN LEFT(sourcenumber,1) &lt;&gt; '+' AND LENGTH(sourcenumber)=10 THEN '+1'||sourcenumber
+         WHEN LEFT(sourcenumber,1) =  '+' AND LENGTH(sourcenumber)=11 THEN '+1'||RIGHT(sourcenumber,10)
+         WHEN LEFT(sourcenumber,1) =  '1' AND LENGTH(sourcenumber)=11 THEN '+'||sourcenumber
+         ELSE sourcenumber
+       END LIKE '%$sourceNumber_token$%'AND
+        a.destinationnumber IN
+        (
+        SELECT a.value
+        FROM MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+        WHERE b.name = '$listName_token$'
+        )
+" shortnames=t
+| table flowtime_ts_cst6cdt flowtime_ts_gmt sourcenumber sourceregion destinationnumber destinationregion routername direction policydisposition ruleid
+| sort 0 flowtime_ts_cst6cdt</query>
+          <earliest>-15m</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
