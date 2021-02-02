@@ -1,0 +1,139 @@
+<form>
+  <label>IPS Response - Total Inbound (ENUM) Timechart (To a List)</label>
+  <fieldset submitButton="false" autoRun="false">
+    <input type="text" token="numDays_token">
+      <label>Number of Days Back</label>
+      <default>1</default>
+    </input>
+    <input type="dropdown" token="listName_token">
+      <label>To Destination List</label>
+      <fieldForLabel>name</fieldForLabel>
+      <fieldForValue>name</fieldForValue>
+      <search>
+        <query>| dbxquery 
+connection=ngp_connection 
+timeout=1800 query="
+SELECT  distinct b.name
+FROM    master.listing a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+WHERE   b.type=1
+" shortnames=t
+| sort name</query>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </search>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <chart>
+        <title>Calls by 15m Buckets (UTC)</title>
+        <search base="parent">
+          <query>|  eval _time=strptime(buckets,"%Y-%m-%d %H:%M") 
+| timechart span=15m sum(calls) fixedrange=f</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <link target="_blank">/app/search/zzz_drilldown_ips_response__total_inbound_enum_timechart_all_calls_list_support?date_value=$click.value$&amp;listName_token=$listName_token$</link>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>By Routername (UTC)</title>
+        <search base="parent">
+          <query>|  eval _time=strptime(buckets,"%Y-%m-%d %H:%M") 
+| timechart fixedrange=f span=15m sum(calls) by routername</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>Unique Sources | Unique Destinations (UTC)</title>
+        <search base="source_dest">
+          <query>|  eval _time=strptime(buckets,"%Y-%m-%d %H:%M") 
+| timechart fixedrange=f span=15m sum(sourcenumbers) as sourcenumbers sum(destinationnumbers) as destinationnumbers</query>
+        </search>
+        <option name="charting.chart">line</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="refresh.display">preview</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Inbound to Top 20 TFN List</title>
+        <search id="parent">
+          <query>| dbxquery 
+connection="ngp_connection" 
+timeout=7200 query="
+SELECT   to_char(to_timestamp(floor((extract('epoch' from to_timestamp(a.analyticstime/1000) AT TIME ZONE 'UTC') / 900 )) * 900),'YYYY-MM-DD hh24:mi:ss') as buckets,
+         a.routername,
+         COALESCE(count(a.guid),0) as calls
+FROM     master.flowstart a
+WHERE    a.routername LIKE 'enum%' AND
+         a.direction = 1 AND
+         a.analyticstime &gt;= (extract (epoch from now() - INTERVAL '$numDays_token$ DAYS') * 1000)::bigint AND
+        a.destinationnumber IN 
+         (
+         SELECT 	a.value
+         FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+         WHERE 	  b.name = '$listName_token$'
+         )
+GROUP BY  to_char(to_timestamp(floor((extract('epoch' from to_timestamp(a.analyticstime/1000) AT TIME ZONE 'UTC') / 900 )) * 900),'YYYY-MM-DD hh24:mi:ss'), a.routername
+ORDER BY  to_char(to_timestamp(floor((extract('epoch' from to_timestamp(a.analyticstime/1000) AT TIME ZONE 'UTC') / 900 )) * 900),'YYYY-MM-DD hh24:mi:ss'), a.routername
+" shortnames=t</query>
+          <earliest>-15m</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="count">10</option>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <table>
+        <title>Source and Dest Counts</title>
+        <search id="source_dest">
+          <query>| dbxquery 
+connection="ngp_connection" 
+timeout=7200 query="
+SELECT   to_char(to_timestamp(floor((extract('epoch' from to_timestamp(a.analyticstime/1000) AT TIME ZONE 'UTC') / 900 )) * 900),'YYYY-MM-DD hh24:mi:ss') as buckets,
+         count(distinct sourcenumber) as sourcenumbers,
+         count(distinct destinationnumber) as destinationnumbers
+FROM     master.flowstart a
+WHERE    a.routername LIKE 'enum%' AND
+         a.direction = 1 AND
+         a.analyticstime &gt;= (extract (epoch from now() - INTERVAL '$numDays_token$ DAYS') * 1000)::bigint AND
+        a.destinationnumber IN 
+         (
+         SELECT 	a.value
+         FROM 	    MASTER.LISTING a INNER JOIN master.listinggroup b ON a.listinggroupid=b.id
+         WHERE 	  b.name = '$listName_token$'
+         )
+GROUP BY  to_char(to_timestamp(floor((extract('epoch' from to_timestamp(a.analyticstime/1000) AT TIME ZONE 'UTC') / 900 )) * 900),'YYYY-MM-DD hh24:mi:ss'), a.routername
+ORDER BY  to_char(to_timestamp(floor((extract('epoch' from to_timestamp(a.analyticstime/1000) AT TIME ZONE 'UTC') / 900 )) * 900),'YYYY-MM-DD hh24:mi:ss'), a.routername
+" shortnames=t</query>
+          <earliest>-24h@h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+  </row>
+</form>
