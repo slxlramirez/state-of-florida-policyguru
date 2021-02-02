@@ -8,7 +8,7 @@
           <query>| dbxquery 
 connection="ngp_connection" 
 timeout=1800 query="
-SELECT to_timestamp(cast($date_value$ as bigint)) as c
+SELECT to_char(to_timestamp(cast($date_value$ as bigint)),'YYYY-MM-DD hh24:mi') as c
 " shortnames=t
 | table *</query>
           <earliest>-24h@h</earliest>
